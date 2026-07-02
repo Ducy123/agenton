@@ -26,7 +26,7 @@ class PlatformRegisterConnector(TaskConnector):
             try:
                 resp = await client.post(endpoint, json=payload)
             except httpx.HTTPError as exc:
-                return TaskResult(success=False, message=f"{endpoint} returned HTTP {resp.status_code}: {resp.text}")
+                return TaskResult(success=False, message=f"Failed to reach {endpoint}: {exc}")
 
         if resp.status_code >= 400:
             return TaskResult(success=False, message=f"{endpoint} returned HTTP {resp.status_code}: {resp.text}")
