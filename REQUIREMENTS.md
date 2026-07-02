@@ -51,6 +51,11 @@ but needs real third-party credentials to actually go live) · **Partial**
 | View an Agent's usage fees | `GET /billing/transactions`, filterable to a specific instance via the `reference` field on consumption entries | Done | `app/billing/router.py` |
 | Support renewal, stop, and release of Agent instances | Auto-renewal via the background scheduler when `wallet.auto_renew_enabled` and balance covers it; `POST /instances/{id}/stop`; `POST /instances/{id}/release` | Done | `app/instances/scheduler.py`, `app/instances/router.py` |
 
+Every row above is reachable through a real UI, not just the REST API —
+the `web/` dashboard (`/app/` route) covers marketplace browsing, renting,
+wallet management, and instance control end to end. See the README's
+"Getting started" section.
+
 ---
 
 ## 3. Business flow
