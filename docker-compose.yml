@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://agenton:agenton@db:5432/agenton
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-random-64-char-string}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+    depends_on:
+      - db
+    volumes:
+      - claude-auth:/home/agenton/.claude
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agenton
+      POSTGRES_PASSWORD: agenton
+      POSTGRES_DB: agenton
+    volumes:
+      - agenton-db:/var/lib/postgresql/data
+
+volumes:
+  agenton-db:
+  claude-auth:
