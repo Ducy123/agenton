@@ -22,6 +22,16 @@ def test_wallet_starts_at_zero(client, register_and_login):
     assert resp.json()["is_low_balance"] is True
 
 
+def test_toggle_auto_renew(client, register_and_login):
+    headers = register_and_login()
+    resp = client.patch("/billing/wallet/settings", headers=headers, json={"auto_renew_enabled": True})
+    assert resp.status_code == 200
+    assert resp.json()["auto_renew_enabled"] is True
+
+    resp = client.patch("/billing/wallet/settings", headers=headers, json={"auto_renew_enabled": False})
+    assert resp.json()["auto_renew_enabled"] is False
+
+
 def test_recharge_increases_balance(client, register_and_login):
     headers = register_and_login()
     resp = client.post("/billing/wallet/recharge", headers=headers, json={"amount_cents": 1000})
