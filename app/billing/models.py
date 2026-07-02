@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import Field, SQLModel
 
-from app.common.enums import OrderStatus, PricingUnit, TransactionKind
+from app.common.enums import OrderStatus, PricingUnit, RechargeStatus, TransactionKind
 
 
 def _uuid() -> str:
@@ -51,3 +51,20 @@ class Order(SQLModel, table=True):
     status: OrderStatus = OrderStatus.PENDING
     created_at: datetime = Field(default_factory=_now)
     paid_at: datetime | None = None
+
+
+class PendingRecharge(SQLModel, table=True):
+    """Tracks a hosted-checkout recharge between session creation and the
+    provider's webhook confirming payment. `provider_reference` (the
+    checkout session id) is unique so a retried webhook delivery can never
+    double-credit the wallet — see billing.service.complete_pending_recharge.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    user_id: str = Field(index=True)
+    amount_cents: int
+    provider: str
+    provider_reference: str = Field(unique=True, index=True)
+    status: RechargeStatus = RechargeStatus.PENDING
+    created_at: datetime = Field(default_factory=_now)
+    completed_at: datetime | None = None

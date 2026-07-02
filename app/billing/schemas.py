@@ -15,6 +15,21 @@ class RechargeRequest(BaseModel):
     amount_cents: int
 
 
+class WalletSettingsUpdate(BaseModel):
+    auto_renew_enabled: bool
+
+
+class RechargeCheckoutRequest(BaseModel):
+    amount_cents: int
+    success_url: str
+    cancel_url: str
+
+
+class CheckoutSessionRead(BaseModel):
+    checkout_url: str
+    session_id: str
+
+
 class TransactionRead(BaseModel):
     id: str
     kind: TransactionKind
