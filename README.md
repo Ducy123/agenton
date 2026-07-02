@@ -1,14 +1,22 @@
 # AgentOn
 
-AgentOn is a multi-tenant **Agent Rental Marketplace**: renters browse a
-catalog of task-executing AI agents, pay to activate an instance, use it,
-and the platform meters usage, handles billing, and manages the agent's
-lifecycle end to end.
+AgentOn is the solution being built to meet the AgentOn Agent Rental
+requirements: a multi-tenant marketplace where renters browse
+task-executing AI agents, pay to activate an instance, use it, and the
+platform meters usage, handles billing, and manages the agent's lifecycle
+end to end.
 
-This repository implements the backend platform described in
+**→ [REQUIREMENTS.md](REQUIREMENTS.md) is the appendix that matters most
+here**: it quotes every requirement from
 [`_AgentOn Agent 租用功能说明.pdf`](<_AgentOn Agent 租用功能说明.pdf>) (the
-original product spec). Its execution kernel borrows architectural patterns
-from [javis-os](https://github.com/blogminhquy/javis-os) — see
+original product spec) one by one and maps each to the concrete solution
+implemented for it — which API, which module, which connector, and an
+honest status (done, needs real credentials, or still planned). Read that
+file to see the full pipeline: what was asked for, and exactly how this
+codebase answers it.
+
+The execution kernel borrows architectural patterns from
+[javis-os](https://github.com/blogminhquy/javis-os) — see
 [`ANALYSIS-javis-os.md`](ANALYSIS-javis-os.md) for the full writeup —
 reshaped for multi-tenant SaaS instead of a single-user personal assistant.
 See [`app/engine/README.md`](app/engine/README.md) for exactly what was
@@ -18,8 +26,9 @@ reused and why.
 
 - **Marketplace** — browse/search rentable agent templates by category,
   view capabilities and pricing.
-- **Rental & billing** — wallet-based credits, online recharge through a
-  pluggable payment provider, pay-per-order, time-based (hour/day/month) or
+- **Rental & billing** — wallet-based credits, online recharge (immediate
+  mock provider for dev, or a Stripe-hosted checkout + webhook flow for
+  real payments), pay-per-order, time-based (hour/day/month) or
   token/package metered pricing, auto-renewal, low-balance detection, and a
   full append-only consumption ledger.
 - **Agent instance lifecycle** — Created → Running → Paused → Stopped →
@@ -30,6 +39,10 @@ reused and why.
   platform registration, web visits, ...) is a `TaskConnector` plugin.
   Adding a new task type never touches billing, marketplace, or instance
   code.
+- **OAuth-connected social actions** — renters connect their X/Discord
+  account once (PKCE / OAuth2), and every X/Discord task on any of their
+  instances automatically uses that stored, encrypted token — no manual
+  token-passing per call.
 - **Self-protecting automation** — every task run gets an independent
   verification pass, and 3 consecutive failures auto-pause the instance —
   patterns adapted from javis-os's self-improvement loop.
@@ -41,8 +54,9 @@ app/
 ├── auth/          multi-tenant user accounts, JWT auth
 ├── marketplace/   agent template catalog: browse/search/publish
 ├── billing/       wallet, ledger, orders, pluggable payment providers
-│   └── providers/ PaymentProvider interface + mock implementation
+│   └── providers/ PaymentProvider/CheckoutProvider interfaces, mock + Stripe
 ├── instances/     AgentInstance lifecycle state machine + scheduler
+├── platforms/     renter OAuth connections (X, Discord) — encrypted token storage
 ├── engine/        execution kernel (extracted javis-os patterns)
 │   └── connectors/  one file per task type, registered in bootstrap.py
 ├── common/        shared errors, pagination, enums, atomic file writes
@@ -64,6 +78,9 @@ type or payment provider**.
 - (optional) the `claude` CLI on `PATH` if you want the
   `ai_content_generation` connector to actually run (see
   [Claude Code](https://docs.claude.com/claude-code))
+- (optional) an X (Twitter) developer app and/or Discord application if you
+  want the social connectors to run against real accounts
+- (optional) a Stripe account if you want real hosted-checkout recharges
 
 ### 2. Local setup
 
@@ -72,7 +89,7 @@ cd agenton
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # edit as needed — SQLite works out of the box
+cp .env.example .env      # edit as needed — SQLite + mock payments work out of the box
 uvicorn app.main:app --reload
 ```
 
@@ -135,13 +152,20 @@ curl -X POST localhost:8000/marketplace/agents \
 curl localhost:8000/marketplace/agents
 ```
 
-**4. Recharge your wallet** (uses the `mock` payment provider in dev — swap
-in a real one before going live, see `app/billing/providers/`)
+**4. Fund your wallet** — pick one:
 
 ```bash
+# (a) Immediate mock recharge — for local dev/testing, always "succeeds"
 curl -X POST localhost:8000/billing/wallet/recharge \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"amount_cents": 5000}'
+
+# (b) Real hosted checkout (requires PAYMENT_PROVIDER=stripe + Stripe keys in .env)
+curl -X POST localhost:8000/billing/wallet/recharge/checkout \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"amount_cents": 5000, "success_url": "https://your-app/success", "cancel_url": "https://your-app/cancel"}'
+# -> redirect the renter's browser to the returned checkout_url; the wallet
+#    is credited once Stripe calls POST /billing/webhooks/stripe
 ```
 
 **5. Create and pay for an order**
@@ -180,24 +204,65 @@ curl localhost:8000/billing/wallet -H "Authorization: Bearer $TOKEN"
 curl localhost:8000/billing/transactions -H "Authorization: Bearer $TOKEN"
 ```
 
-**9. Stop and release when done**
+**9. Turn on auto-renewal (optional, for time-based rentals)**
+
+```bash
+curl -X PATCH localhost:8000/billing/wallet/settings \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"auto_renew_enabled": true}'
+```
+
+**10. Stop and release when done**
 
 ```bash
 curl -X POST localhost:8000/instances/$INSTANCE_ID/stop -H "Authorization: Bearer $TOKEN"
 curl -X POST localhost:8000/instances/$INSTANCE_ID/release -H "Authorization: Bearer $TOKEN"
 ```
 
+## Walkthrough: connect X/Discord before renting a social-action agent
+
+Twitter and Discord task types (`twitter_follow`, `twitter_post`,
+`discord_join`, ...) act on the **renter's own account**, so they connect
+it once via OAuth — every instance execution afterwards picks the stored
+token up automatically.
+
+```bash
+# 1. Get the authorize URL and send the renter's browser there
+curl localhost:8000/platforms/twitter/authorize -H "Authorization: Bearer $TOKEN"
+# -> {"authorize_url": "https://twitter.com/i/oauth2/authorize?...", "state": "..."}
+
+# 2. Twitter redirects back to TWITTER_REDIRECT_URI with ?code=...&state=...
+#    (your frontend forwards that to the backend, or the backend's own
+#    redirect_uri handles it directly)
+curl "localhost:8000/platforms/twitter/callback?code=<code>&state=<state>"
+
+# 3. Confirm the connection
+curl localhost:8000/platforms -H "Authorization: Bearer $TOKEN"
+
+# From here, twitter_follow/like/retweet/post tasks on any of this renter's
+# instances no longer need user_access_token / twitter_user_id in
+# task_params — instances.service fills them in from the stored connection.
+
+# Disconnect any time:
+curl -X DELETE localhost:8000/platforms/twitter -H "Authorization: Bearer $TOKEN"
+```
+
+The same flow applies to `/platforms/discord/authorize` and
+`/platforms/discord/callback`.
+
 ## Going to production
 
-This repo ships with **safe defaults that are not production-ready on their
-own**:
+This repo ships with **safe defaults that are not production-ready on
+their own** — see [REQUIREMENTS.md § "What 'Done\*' means in practice"](REQUIREMENTS.md#what-done-means-in-practice)
+for the exact credentials each integration needs. In short:
 
-- `PAYMENT_PROVIDER=mock` always "succeeds" — swap in a real Stripe/crypto
-  adapter (`app/billing/providers/`) before accepting real money.
-- The Twitter/Discord connectors expect an already-issued renter OAuth
-  token (`user_access_token`) — the three-legged OAuth authorize/callback
-  flow that produces that token isn't implemented here yet (see the
-  docstrings in `app/engine/connectors/twitter.py` and `discord.py`).
+- `PAYMENT_PROVIDER=mock` always "succeeds" — set `PAYMENT_PROVIDER=stripe`
+  plus `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` before accepting real
+  money (`app/billing/providers/stripe_provider.py`).
+- The X/Discord OAuth flows are fully implemented (`app/platforms/`) but
+  need real `TWITTER_CLIENT_ID`/`TWITTER_CLIENT_SECRET` and
+  `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET` registered with each
+  platform to actually authorize renters.
 - SQLite is fine for local development; use Postgres
   (`DATABASE_URL=postgresql+psycopg2://...`) for anything with concurrent
   writes or real money on the line.
@@ -207,6 +272,8 @@ own**:
 
 ## Further reading
 
+- [`REQUIREMENTS.md`](REQUIREMENTS.md) — the PDF-requirement-to-
+  implementation traceability appendix.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — module-by-module breakdown,
   request flow diagrams, and extension points.
 - [`app/engine/README.md`](app/engine/README.md) — what was ported from
