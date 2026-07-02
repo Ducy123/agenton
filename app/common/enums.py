@@ -30,3 +30,9 @@ class TransactionKind(str, Enum):
     ORDER_PAYMENT = "order_payment"
     CONSUMPTION = "consumption"
     REFUND = "refund"
+
+
+class RechargeStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"

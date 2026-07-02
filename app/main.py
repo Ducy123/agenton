@@ -11,6 +11,7 @@ from app.db import init_db
 from app.instances.router import router as instances_router
 from app.instances.scheduler import run_scheduler_forever
 from app.marketplace.router import router as marketplace_router
+from app.platforms.router import router as platforms_router
 
 
 @asynccontextmanager
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(marketplace_router)
     app.include_router(billing_router)
     app.include_router(instances_router)
+    app.include_router(platforms_router)
 
     @app.get("/health", tags=["health"])
     def health():

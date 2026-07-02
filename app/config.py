@@ -23,7 +23,15 @@ class Settings(BaseSettings):
 
     twitter_client_id: str = ""
     twitter_client_secret: str = ""
+    twitter_redirect_uri: str = "http://localhost:8000/platforms/twitter/callback"
+
     discord_bot_token: str = ""
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
+    discord_redirect_uri: str = "http://localhost:8000/platforms/discord/callback"
+
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
 
 
 @lru_cache
