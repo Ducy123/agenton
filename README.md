@@ -46,6 +46,10 @@ reused and why.
 - **Self-protecting automation** — every task run gets an independent
   verification pass, and 3 consecutive failures auto-pause the instance —
   patterns adapted from javis-os's self-improvement loop.
+- **Customer-facing dashboard** — a no-build vanilla-JS single-page app
+  (`web/`) for the actual rental flow: sign up, browse the marketplace,
+  rent and run agents, manage the wallet, and connect X/Discord — served
+  directly by the backend, no separate frontend deployment.
 
 ## Architecture
 
@@ -62,7 +66,12 @@ app/
 ├── common/        shared errors, pagination, enums, atomic file writes
 └── config.py, db.py, deps.py, main.py
 
-tests/             pytest suite covering every module above
+web/               customer dashboard — vanilla JS SPA, no build step
+├── index.html
+├── styles/        design tokens, base layout, components
+└── js/            api client, hash router, one file per view
+
+tests/             pytest suite covering every backend module above
 ```
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full breakdown, request
@@ -93,8 +102,16 @@ cp .env.example .env      # edit as needed — SQLite + mock payments work out o
 uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000/docs for interactive Swagger UI, or
-http://localhost:8000/health to confirm the server is running.
+Open **http://localhost:8000/app/** for the customer-facing dashboard
+(register, browse the marketplace, rent agents, manage your wallet), or
+http://localhost:8000/docs for the interactive Swagger UI (developer-facing
+API explorer), or http://localhost:8000/health to confirm the server is
+running.
+
+The dashboard (`web/`) is a plain HTML/CSS/vanilla-JS single-page app with
+no build step — it's served directly by FastAPI's `StaticFiles`, so there's
+no separate frontend server or Node toolchain to run. See
+[`web/`](web/) if you want to restyle it or add screens.
 
 ### 3. Docker (Postgres-backed)
 
