@@ -13,6 +13,7 @@ from app.instances.lifecycle import assert_transition_allowed
 from app.instances.models import AgentInstance
 from app.instances.pricing import TIME_BASED_DURATIONS
 from app.marketplace.service import get_template
+from app.platforms.service import inject_credentials
 
 _MAX_FAIL_STREAK = 3
 
@@ -133,6 +134,7 @@ async def execute_instance_task(
     connector = get_connector(template.task_type)
 
     params = {**instance.task_params, **(params_override or {})}
+    params = inject_credentials(session, user_id, template.task_type, params)
     ctx = TaskContext(instance_id=instance.id, user_id=user_id, params=params)
     result = await execute_with_verification(connector, ctx)
 
