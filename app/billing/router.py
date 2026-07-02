@@ -1,8 +1,19 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlmodel import Session
 
 from app.billing import service
-from app.billing.schemas import OrderCreate, OrderRead, RechargeRequest, TransactionRead, WalletRead
+from app.billing.providers.base import WebhookVerificationError
+from app.billing.schemas import (
+    CheckoutSessionRead,
+    OrderCreate,
+    OrderRead,
+    RechargeCheckoutRequest,
+    RechargeRequest,
+    TransactionRead,
+    WalletRead,
+    WalletSettingsUpdate,
+)
+from app.common.errors import BadRequestError
 from app.common.pagination import Page
 from app.db import get_session
 from app.deps import get_current_user
@@ -20,6 +31,20 @@ def get_wallet(session: Session = Depends(get_session), current_user=Depends(get
     )
 
 
+@router.patch("/wallet/settings", response_model=WalletRead)
+def update_wallet_settings(
+    data: WalletSettingsUpdate,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    wallet = service.set_auto_renew(session, current_user.id, data.auto_renew_enabled)
+    return WalletRead(
+        balance_cents=wallet.balance_cents,
+        auto_renew_enabled=wallet.auto_renew_enabled,
+        is_low_balance=service.is_low_balance(wallet),
+    )
+
+
 @router.post("/wallet/recharge", response_model=TransactionRead)
 async def recharge_wallet(
     data: RechargeRequest,
@@ -27,6 +52,32 @@ async def recharge_wallet(
     current_user=Depends(get_current_user),
 ):
     return await service.recharge(session, current_user.id, data.amount_cents)
+
+
+@router.post("/wallet/recharge/checkout", response_model=CheckoutSessionRead)
+async def create_recharge_checkout(
+    data: RechargeCheckoutRequest,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    """Starts a hosted-checkout recharge (Stripe etc.) — the wallet is
+    credited later by the webhook once payment actually completes, not by
+    this call. See POST /billing/webhooks/stripe."""
+    pending, checkout_url = await service.create_recharge_checkout(
+        session, current_user.id, data.amount_cents, data.success_url, data.cancel_url
+    )
+    return CheckoutSessionRead(checkout_url=checkout_url, session_id=pending.provider_reference)
+
+
+@router.post("/webhooks/stripe", include_in_schema=False)
+async def stripe_webhook(request: Request, session: Session = Depends(get_session)):
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    try:
+        service.handle_stripe_webhook(session, payload, signature)
+    except WebhookVerificationError as exc:
+        raise BadRequestError(str(exc)) from exc
+    return {"received": True}
 
 
 @router.get("/transactions", response_model=Page[TransactionRead])
