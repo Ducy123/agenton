@@ -1,8 +1,11 @@
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.auth.router import router as auth_router
 from app.billing.router import router as billing_router
@@ -12,6 +15,8 @@ from app.instances.router import router as instances_router
 from app.instances.scheduler import run_scheduler_forever
 from app.marketplace.router import router as marketplace_router
 from app.platforms.router import router as platforms_router
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 @asynccontextmanager
@@ -37,6 +42,13 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["health"])
     def health():
         return {"status": "ok"}
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        return RedirectResponse(url="/app/")
+
+    if WEB_DIR.exists():
+        app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="dashboard")
 
     return app
 
