@@ -11,11 +11,12 @@ auth  ◄─────────────┐
   ▲                    │
   │                    │
 marketplace ◄── billing ◄── instances ──► engine
-  ▲                                          ▲
-  └───────────────────────────────────────┘
-              (instances reads task_type
-               from marketplace, executes
-               it through engine)
+  ▲                              │           ▲
+  │                              ▼           │
+  └────────────── platforms ───────┘
+              (instances reads task_type from marketplace,
+               injects OAuth credentials from platforms,
+               executes the task through engine)
 ```
 
 Rules that keep this from turning into a ball of mud:
@@ -30,10 +31,15 @@ Rules that keep this from turning into a ball of mud:
   (`marketplace/service.py::create_template`).
 - **`billing` depends on `marketplace`** only to snapshot a template's price
   when creating an `Order` (`billing/service.py::create_order`).
+- **`platforms` depends on nothing else in `app/`.** It owns renter OAuth
+  connections (encrypted tokens) for external platforms (X, Discord) and
+  exposes one function, `inject_credentials()`, that anything can call —
+  it doesn't know about instances, billing, or engine either.
 - **`instances` is the orchestrator** — it's the only module that touches
-  `engine`, `billing`, and `marketplace` all at once, because "run this
-  rented agent's task" is inherently a cross-cutting operation (look up the
-  template → get the connector → run it → charge for it → update state).
+  `engine`, `billing`, `marketplace`, and `platforms` all at once, because
+  "run this rented agent's task" is inherently a cross-cutting operation
+  (look up the template → fill in the renter's OAuth token if the task
+  needs one → get the connector → run it → charge for it → update state).
 - **Nothing depends on `instances`.** If you add a second orchestrator later
   (e.g. a batch scheduler that runs many instances' tasks on a timer
   outside the request path — see `instances/scheduler.py`, which already
@@ -72,12 +78,26 @@ Rules that keep this from turning into a ball of mud:
 6. POST /instances/{id}/execute       (renter actually uses the agent)
      instances.service.execute_instance_task()
        -> marketplace.service.get_template()
+       -> platforms.service.inject_credentials()  [fills user_access_token etc.
+                                                    from a stored OAuth connection,
+                                                    no-op for task types that don't need one]
        -> engine.connectors.registry.get_connector(task_type)
        -> engine.verify.execute_with_verification(connector, ctx)
             -> connector.run(ctx)      [does the real work]
             -> connector.verify(ctx, result)  [independent re-check]
        -> on success + token/package pricing: billing.service.meter_consumption()
        -> on 3rd consecutive failure: auto-pause the instance
+```
+
+Renters connect X/Discord once, outside the rental flow itself
+(`app/platforms/router.py`):
+
+```
+GET  /platforms/twitter/authorize   -> builds a PKCE authorize URL + signed state
+GET  /platforms/twitter/callback    -> exchanges the code, stores an encrypted
+                                        PlatformConnection keyed by (user_id, provider)
+GET  /platforms                     -> list a renter's connections
+DELETE /platforms/{provider}        -> disconnect
 ```
 
 Background, outside the request path (`instances/scheduler.py`, started
@@ -134,14 +154,47 @@ instead of trusting the write call's 2xx response).
 
 ### Adding a new payment provider
 
-1. Implement `app/billing/providers/base.py::PaymentProvider` (one method:
-   `charge(user_id, amount_cents) -> str`, raising `PaymentFailedError` on
-   failure).
+There are two distinct capabilities a provider can implement, matching how
+real payment processors actually work:
+
+- **`PaymentProvider.charge(user_id, amount_cents) -> str`** — an immediate
+  server-side charge. Only realistic for a mock/test provider or one that
+  charges an already-saved payment method; raise `PaymentFailedError` on
+  failure.
+- **`CheckoutProvider`** — for processors like Stripe where the renter must
+  complete a hosted page. Implement `create_checkout_session(...)` (returns
+  a URL + session id) and `parse_webhook(payload, signature_header)`
+  (verifies the signature, returns a `WebhookEvent`). See
+  `app/billing/providers/stripe_provider.py` for a complete example
+  (Stripe's REST API called directly over httpx, signature verified by
+  hand with stdlib `hmac` — no `stripe` SDK dependency needed).
+
+Either way:
+
+1. Implement the interface(s) your processor supports in
+   `app/billing/providers/your_provider.py`.
 2. Register it in `app/billing/providers/__init__.py`'s `_PROVIDERS` dict.
 3. Set `PAYMENT_PROVIDER=your_provider_key` in `.env`.
 
 Nothing in `billing/service.py` needs to change — it only ever calls
-`get_payment_provider().charge(...)`.
+`get_payment_provider()` / `get_checkout_provider()`.
+
+### Adding OAuth for a new platform
+
+1. Add an `oauth_yourplatform.py` module in `app/platforms/` with
+   `build_authorize_url(user_id, redirect_uri) -> (url, state)`,
+   `exchange_code(...)`, and `fetch_user_id(access_token)` — follow
+   `oauth_twitter.py` (PKCE) or `oauth_discord.py` (plain OAuth2) depending
+   on what the platform requires.
+2. Add two routes in `app/platforms/router.py` (`/yourplatform/authorize`,
+   `/yourplatform/callback`) following the existing pattern — the callback
+   calls `service.upsert_connection(...)`.
+3. Add an entry to `platforms/service.py`'s `_TASK_TYPE_PROVIDER` mapping
+   for every `task_type` that should auto-receive this platform's token via
+   `inject_credentials()`.
+
+The connector itself (in `engine/connectors/`) never changes — it already
+just reads whatever's in `ctx.params`.
 
 ### Adding a new pricing unit
 
@@ -188,3 +241,17 @@ renewal windows; usage-based units (token/package) are metered per
   function that can be lifted into a separate worker process or a real
   queue (Celery/BullMQ) — deliberately not built now, per YAGNI, since
   there's no evidence yet that a single process can't keep up.
+- **OAuth tokens are encrypted at rest, keyed off the same `SECRET_KEY`
+  used for JWTs** (`platforms/crypto.py`) rather than managing a second
+  secret — one fewer thing to rotate, and `PlatformConnection` is the only
+  table that ever stores a raw third-party credential.
+- **The OAuth `state` parameter carries its own signed payload** (user id,
+  PKCE `code_verifier`) instead of server-side session storage
+  (`platforms/state_token.py`), since this backend is stateless between
+  requests — no shared session store needed even across multiple workers.
+- **Checkout-based recharges never touch the wallet until a verified
+  webhook says so.** `PendingRecharge` rows exist precisely so a renter
+  closing the checkout tab, or Stripe retrying a webhook delivery, can
+  never result in a double-credit or a credit for a payment that never
+  completed — see `billing/service.py::complete_pending_recharge`'s
+  idempotency check.
