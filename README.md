@@ -15,6 +15,38 @@ honest status (done, needs real credentials, or still planned). Read that
 file to see the full pipeline: what was asked for, and exactly how this
 codebase answers it.
 
+## Try it now — live public demo
+
+The dashboard is running publicly right now via a Cloudflare quick tunnel, so
+anyone can click around without installing anything:
+
+**→ https://arranged-inspired-fragrances-specifications.trycloudflare.com/app/**
+
+Log in with the shared demo account (already loaded with a huge test
+balance so you never have to think about recharging):
+
+```
+Email:    demo@agenton.dev
+Password: AgentOnDemo2026!
+```
+
+A few things to know about this specific link:
+
+- **It's a free quick tunnel, not a real deployment.** Quick tunnels have no
+  uptime guarantee and the URL changes every time the tunnel is restarted —
+  treat it as a temporary demo link, not a stable product URL. See
+  ["Going to production"](#going-to-production) below for how to get a
+  permanent domain instead.
+- **Everyone who logs in shares the same demo account** — same wallet,
+  same instances, same connected social accounts. That's intentional (see
+  the FAQ entry ["Do I need my own Twitter/Discord developer
+  account?"](#do-i-need-my-own-twitterdiscord-developer-account-to-test-this)
+  below for why), but it also means don't treat anything typed into this
+  demo as private, and expect the wallet balance/instance list to be
+  whatever the last visitor left it as.
+- `PAYMENT_PROVIDER=mock` on this instance, so "recharging" is always fake
+  money — no real card is ever asked for.
+
 The execution kernel borrows architectural patterns from
 [javis-os](https://github.com/blogminhquy/javis-os) — see
 [`ANALYSIS-javis-os.md`](ANALYSIS-javis-os.md) for the full writeup —
@@ -179,6 +211,44 @@ need their own account for this one.
 That's it. From now on, anyone who rents "AI Content Writer" on your
 AgentOn site gets real AI-written text — they don't need a Claude account
 of their own.
+
+### Do I need my own Twitter/Discord developer account to test this?
+
+Short answer: **only the server operator needs one — real testers don't,
+as long as the operator sets it up this way.**
+
+There are two separate things that look similar but aren't:
+
+1. **The "pool" (Client ID/Secret / Bot Token) — set up once by the
+   operator in `.env`.** This just tells Twitter/Discord "this AgentOn
+   server is allowed to ask people to log in." It doesn't perform any
+   actions by itself.
+2. **A connected account — set up per dashboard login, via Connected
+   Accounts.** This is *whose* X/Discord account actually gets followed
+   from / posted from / joined-into-servers-as. Someone has to log in with
+   a real X/Discord account for this step to exist at all — there's no way
+   around that, because that's what makes the action happen *as* a real
+   account instead of a fake one.
+
+For a **public demo where random visitors shouldn't need their own X or
+Discord account**, the trick is: the operator does step 2 **once**, logged
+in as the *shared demo account* (`demo@agenton.dev` from the [public demo
+link above](#try-it-now--live-public-demo)), using any spare/throwaway X
+or Discord account they're comfortable with automating. From then on,
+every visitor who logs into that same shared demo account inherits that
+already-connected account — nobody else ever sees an OAuth screen. This is
+exactly the "I rent the API, testers just use my resources" model — it's
+just implemented as "one shared login" rather than a special code path.
+
+If instead every renter needs their *own* X/Discord identity behind their
+actions (the correct model for a real multi-tenant product, not just a
+demo), skip this trick — give each renter their own dashboard account and
+let Part B below run per-renter, the normal way.
+
+One honest caveat: X (Twitter) now requires a **paid API tier** (currently
+starting at the "Basic" plan) to do write actions like follow/like/retweet/
+post — the free tier is read-only. Budget for that before promising these
+agents work for real. Discord's bot API remains free.
 
 ### "X Auto-Follow / Auto-Like / Auto-Retweet / Auto-Post" (Twitter agents)
 
@@ -415,6 +485,13 @@ for the exact credentials each integration needs. In short:
 - There's no role/permission system yet — any authenticated user can
   publish marketplace listings today (see the `TODO` note in
   `marketplace/router.py`).
+- The [public demo link above](#try-it-now--live-public-demo) is a free
+  Cloudflare quick tunnel — fine for letting people click around, not a
+  real deployment. For a permanent domain, deploy the same Docker image
+  (see [Docker (Postgres-backed)](#3-docker-postgres-backed)) to a host
+  that gives you a stable public URL — Render, Fly.io, and Railway all have
+  a free/low-cost tier that can run a Docker container plus a managed
+  Postgres database with no server to maintain.
 
 ## Further reading
 
