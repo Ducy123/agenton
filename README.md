@@ -128,6 +128,135 @@ This starts the API on port 8000 backed by a Postgres container (see
 pytest
 ```
 
+### 5. Try it with sample agents already loaded
+
+A fresh database has an empty marketplace. Run this once to load 8 ready-to-rent
+sample agents (one per task type, so there's something to click on immediately):
+
+```bash
+python scripts/seed_demo_data.py
+```
+
+Safe to re-run any time — it skips agents that already exist.
+
+## FAQ — what do I need before I start?
+
+Short version: **some agents work the instant you rent them, with nothing to
+prepare. Others need one small setup step first.** This section walks
+through it like you've never done any of this before.
+
+Two different people read this section:
+
+- 🛠 **"I run the AgentOn server"** — a few steps below are done **once**,
+  by you, in the server's `.env` file. After that, every renter benefits —
+  they never see or touch these steps.
+- 🙋 **"I just rent agents on a running AgentOn site"** — you only ever
+  click buttons inside the dashboard. You never edit a config file or
+  install anything.
+
+### These agents need *nothing* — rent and run them right now
+
+- **Web Visitor Bot**
+- **Platform Signup Bot**
+
+They don't touch any outside account. Register, recharge your wallet with
+the free **Recharge (dev)** button on the Wallet page, and rent either of
+these to see the whole flow work end to end in under a minute.
+
+### "AI Content Writer" (writes text for you)
+
+This is a **one-time setup for the server operator only** — renters never
+need their own account for this one.
+
+1. Go to **[claude.ai](https://claude.ai)** and create an account.
+2. Subscribe to a paid plan — **Claude Pro** or **Claude Max** (this is a
+   monthly subscription, like Netflix, and is what actually pays for the AI
+   to write things).
+3. On the computer/server running AgentOn, install the **Claude Code** CLI
+   tool by following **[docs.claude.com/claude-code](https://docs.claude.com/claude-code)**.
+4. Run `claude` once in a terminal and log in with the account from step 1.
+
+That's it. From now on, anyone who rents "AI Content Writer" on your
+AgentOn site gets real AI-written text — they don't need a Claude account
+of their own.
+
+### "X Auto-Follow / Auto-Like / Auto-Retweet / Auto-Post" (Twitter agents)
+
+**Part A — done once by the server operator:**
+
+1. Go to **[developer.x.com](https://developer.x.com)** and sign in with
+   any X account.
+2. Click **Create a project**, then **Create an app** inside it.
+3. X will show you two secret codes: a **Client ID** and a **Client
+   Secret**. Copy both somewhere safe.
+4. Open the server's `.env` file and paste them in:
+   ```
+   TWITTER_CLIENT_ID=<paste your Client ID here>
+   TWITTER_CLIENT_SECRET=<paste your Client Secret here>
+   ```
+5. Restart the AgentOn server so it picks up the new values.
+
+**Part B — done by each renter, inside the dashboard, no typing required:**
+
+1. Open the dashboard → **Connected Accounts**.
+2. Click **Connect X (Twitter)**.
+3. Log in with your own X account — exactly like clicking "Sign in with X"
+   on any other website.
+
+From then on, every X agent that renter rents automatically uses their own
+connected account.
+
+### "Discord Community Joiner"
+
+**Part A — done once by the server operator:**
+
+1. Go to **[discord.com/developers/applications](https://discord.com/developers/applications)**.
+2. Click **New Application**, give it any name.
+3. Open the **Bot** tab → click **Add Bot** → copy the **Bot Token**.
+4. Open the **OAuth2** tab → copy the **Client ID** and **Client Secret**.
+5. Paste all three into `.env`:
+   ```
+   DISCORD_BOT_TOKEN=<paste bot token here>
+   DISCORD_CLIENT_ID=<paste client id here>
+   DISCORD_CLIENT_SECRET=<paste client secret here>
+   ```
+6. Invite that bot into any Discord server you want renters to be able to
+   join, with permission to manage members.
+7. Restart the server.
+
+**Part B — done by each renter:**
+
+1. Dashboard → **Connected Accounts** → **Connect Discord** → log in with
+   your Discord account.
+
+### Accepting real credit card payments (instead of test money)
+
+Done once by the server operator:
+
+1. Go to **[stripe.com](https://stripe.com)** and create a free account.
+2. In the Stripe dashboard, go to **Developers → API keys** and copy your
+   **Secret key**.
+3. Add to `.env`:
+   ```
+   PAYMENT_PROVIDER=stripe
+   STRIPE_SECRET_KEY=<paste secret key here>
+   ```
+4. In Stripe, set up a webhook pointing to
+   `https://your-domain.com/billing/webhooks/stripe`, then copy the
+   **Signing secret** it gives you into `.env` as `STRIPE_WEBHOOK_SECRET`.
+5. Restart the server.
+
+Until this is done, the **Recharge (dev)** button on the Wallet page always
+"succeeds" instantly with fake money — perfect for testing, but it must
+not be shown to real paying customers.
+
+### I don't want to set any of this up yet — can I still try the product?
+
+Yes. Register on the dashboard, click **Recharge (dev)** to get free test
+funds, and rent **Web Visitor Bot** or **Platform Signup Bot** — both work
+immediately with zero setup, so you can test the entire browse → rent →
+run → pay flow today.
+
 ## Walkthrough: rent and run an agent
 
 All examples assume the API is running at `http://localhost:8000`.
